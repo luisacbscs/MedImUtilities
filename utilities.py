@@ -28,7 +28,7 @@ def read_dicom_series(series_path, pixel_type=itk.F, dimension=3):
     return reader.GetOutput()
 
 
-# Function to access a specific tag from the metadata of a DICOM series; the tag must be given in format [0000, 0000]
+# Function to access a specific tag from the metadata of a DICOM series; the tag must in format ['0000', '0000']
 def get_dicom_tag(series_path, dicom_tag: list):
     import pydicom
 
@@ -37,9 +37,10 @@ def get_dicom_tag(series_path, dicom_tag: list):
 
     metadata = pydicom.filereader.dcmread(os.path.join(series_path, sorted(os.listdir(series_path))[0]))
 
+    tag_name = str(metadata[tag1, tag2].name)
     tag_value = str(metadata[tag1, tag2].value)
 
-    return tag_value
+    return tag_name, tag_value
 
 
 # Function to resample an itk Image to a given spacing (expected spacing array format: (X, Y, Z) - ITK FORMAT)
