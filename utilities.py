@@ -1,9 +1,10 @@
 import itk
 import os
+import numpy as np
 
 
 # Function to read into itk.Image a DICOM series
-def read_dicom_series(series_path, pixel_type=itk.F, dimension=3):
+def read_dicom_series(series_path, pixel_type=itk.F, dimension=3, print_metadata=False):
     # Set up the image readers with their type
     ImageType = itk.Image[pixel_type, dimension]
 
@@ -19,37 +20,83 @@ def read_dicom_series(series_path, pixel_type=itk.F, dimension=3):
     # Set up the image series reader using GDCMImageIO
     reader = itk.ImageSeriesReader[ImageType].New()
     dicomIO = itk.GDCMImageIO.New()
-    dicomIO.LoadPrivateTagsOn()
+    dicomIO.SetLoadPrivateTags(True)
     reader.SetImageIO(dicomIO)
     reader.SetFileNames(fileNames)
+    reader.ForceOrthogonalDirectionOff()
+    reader.UpdateLargestPossibleRegion()  # only works in function with this; only prints metadata after this
 
-    reader.UpdateLargestPossibleRegion()    # only works in function with this
+    if print_metadata:
+
+        metadata = dicomIO.GetMetaDataDictionary()
+
+        for tagkey in metadata.GetKeys():
+            try:
+                value = metadata[tagkey]
+                print(tagkey, value)
+            except RuntimeError:
+                print("Cannot read" + tagkey + "into metadata dictionary")
+            except UnicodeEncodeError:
+                value = metadata[tagkey].encode('utf-8', 'surrogateescape').decode('ISO-8859-1')
+                print(tagkey, value)
 
     return reader.GetOutput()
 
 
-# Function to access a specific tag from the metadata of a DICOM series; the tag must in format ['0000', '0000']
-def get_dicom_tag(series_path, dicom_tag: list):
+# Function to access a specific tag from the metadata of a DICOM series; the tag must in format ['0000', '0000'] or
+# [['0000', '0000'], ['0000', '0000']] if nested (with the first position corresponding to the parent tag). If no tag is
+# passed, all metadata dictionary is printed.
+def get_dicom_tag(series_path, dicom_tag: list = None):
+
     import pydicom
+    metadata = pydicom.filereader.dcmread(os.path.join(series_path, sorted(os.listdir(series_path))[1]))    # reading
+    # from the second file in the series (index 1), as the first file may be a storage file (DIRFILE) and, therefore,
+    # its metadata relative to DICOM series organization and storage, and not actual imaging-related tags
 
-    tag1 = int(f"0x{dicom_tag[0]}", 16)
-    tag2 = int(f"0x{dicom_tag[1]}", 16)
+    if dicom_tag is not None:
+        tag_name = None
+        tag_value = None
+        if np.asarray(dicom_tag).ndim == 1:
+            tag1 = int(f"0x{dicom_tag[0]}", 16)
+            tag2 = int(f"0x{dicom_tag[1]}", 16)
 
-    metadata = pydicom.filereader.dcmread(os.path.join(series_path, sorted(os.listdir(series_path))[0]))
+            try:
+                tag_name = str(metadata[tag1, tag2].name)
+                tag_value = str(metadata[tag1, tag2].value)
+            except KeyError:
+                print(f"Tag ({dicom_tag[0]}, {dicom_tag[1]}) not found! Check for parent tag.")
 
-    tag_name = str(metadata[tag1, tag2].name)
-    tag_value = str(metadata[tag1, tag2].value)
+        elif np.asarray(dicom_tag).ndim == 2:
+            parent_tag1 = int(f"0x{dicom_tag[0][0]}", 16)
+            parent_tag2 = int(f"0x{dicom_tag[0][1]}", 16)
 
-    return tag_name, tag_value
+            tag1 = int(f"0x{dicom_tag[1][0]}", 16)
+            tag2 = int(f"0x{dicom_tag[1][1]}", 16)
+
+            try:
+                tag_name = str(metadata[parent_tag1, parent_tag2][0][tag1, tag2].name)
+                tag_value = str(metadata[parent_tag1, parent_tag2][0][tag1, tag2].value)
+            except KeyError:
+                print(f"Tag ({dicom_tag[0]}, {dicom_tag[1]}) not found! Check for parent tag.")
+
+        else:
+            print("Please introduce a DICOM tag in format ['0000', '0000'], or, if nested, [['0000', '0000'],"
+                  " ['0000', '0000']] (with the first position referring to the parent tag).")
+
+        return tag_name, tag_value
+    else:
+        print(metadata)
 
 
 # Function to resample an itk Image to a given spacing (expected spacing array format: (X, Y, Z) - ITK FORMAT)
-def resample_volume(volume, new_spacing, interpolation_mode="nearestneighbour"):
+def resample_volume(volume, new_spacing, interpolation_mode="bspline"):
 
-    if interpolation_mode == "nearestneighbour":    # for images
+    if interpolation_mode == "nearestneighbour":    # for masks
         interpolator = itk.NearestNeighborInterpolateImageFunction
-    elif interpolation_mode == "linear":    # for masks
+    elif interpolation_mode == "linear":
         interpolator = itk.LinearInterpolateImageFunction
+    else:
+        interpolator = itk.BSplineInterpolateImageFunction
 
     if isinstance(volume, str):
         volume = itk.imread(volume)
@@ -61,7 +108,8 @@ def resample_volume(volume, new_spacing, interpolation_mode="nearestneighbour"):
 
     if original_spacing != new_spacing:
 
-        new_size = [int(round(osz * ospc / nspc)) for osz, ospc, nspc in
+        # rounding up the new size! output physical space will be equal or larger to original
+        new_size = [int(np.ceil(osz * ospc / nspc)) for osz, ospc, nspc in
                     zip(original_size, original_spacing, new_spacing)]
 
         return itk.resample_image_filter(
@@ -97,3 +145,42 @@ def resample_to_reference(volume, reference, interpolation_mode="nearestneighbou
         use_reference_image=True,
         reference_image=reference
     )
+
+
+# Function to read and write a DICOM series into a file
+def series_reader_writer(series_path, pixel_type=itk.F, dimension=3, out_filename=None):
+
+    ImageType = itk.Image[pixel_type, dimension]
+
+    namesGenerator = itk.GDCMSeriesFileNames.New()
+    namesGenerator.SetUseSeriesDetails(True)
+    namesGenerator.AddSeriesRestriction("0008|0021")
+    namesGenerator.SetGlobalWarningDisplay(False)
+    namesGenerator.SetDirectory(series_path)
+
+    seriesUID = namesGenerator.GetSeriesUIDs()
+
+    if len(seriesUID) < 1:
+        print("No DICOMs in: " + series_path)
+        return 1
+
+    for uid in seriesUID:
+
+        seriesIdentifier = uid
+        fileNames = namesGenerator.GetFileNames(seriesIdentifier)
+        reader = itk.ImageSeriesReader[ImageType].New()
+        dicomIO = itk.GDCMImageIO.New()
+        reader.SetImageIO(dicomIO)
+        reader.SetFileNames(fileNames)
+        reader.ForceOrthogonalDirectionOff()
+
+        writer = itk.ImageFileWriter[ImageType].New()
+
+        if out_filename is None:
+            out_filename = seriesIdentifier + ".nii.gz"
+
+        writer.SetFileName(out_filename)
+        writer.UseCompressionOn()
+        writer.SetInput(reader.GetOutput())
+
+        writer.Update()
