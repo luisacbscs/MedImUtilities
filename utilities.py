@@ -44,8 +44,8 @@ def read_dicom_series(series_path, pixel_type=itk.F, dimension=3, print_metadata
 
 
 # Function to access a specific tag from the metadata of a DICOM series; the tag must in format ['0000', '0000'] or
-# [['0000', '0000'], ['0000', '0000']] if nested (with the first position corresponding to the parent tag). If no tag is
-# passed, all metadata dictionary is printed.
+# [['0000', '0000'], ['0000', '0000'], ...] if nested (with the first position corresponding to the parent tag). If no
+# tag is passed, all metadata dictionary is printed.
 def get_dicom_tag(series_path, dicom_tag: list = None):
 
     import pydicom
@@ -56,6 +56,7 @@ def get_dicom_tag(series_path, dicom_tag: list = None):
     if dicom_tag is not None:
         tag_name = None
         tag_value = None
+        intermediate = metadata
         if np.asarray(dicom_tag).ndim == 1:
             tag1 = int(f"0x{dicom_tag[0]}", 16)
             tag2 = int(f"0x{dicom_tag[1]}", 16)
@@ -67,21 +68,19 @@ def get_dicom_tag(series_path, dicom_tag: list = None):
                 print(f"Tag ({dicom_tag[0]}, {dicom_tag[1]}) not found! Check for parent tag.")
 
         elif np.asarray(dicom_tag).ndim == 2:
-            parent_tag1 = int(f"0x{dicom_tag[0][0]}", 16)
-            parent_tag2 = int(f"0x{dicom_tag[0][1]}", 16)
-
-            tag1 = int(f"0x{dicom_tag[1][0]}", 16)
-            tag2 = int(f"0x{dicom_tag[1][1]}", 16)
-
-            try:
-                tag_name = str(metadata[parent_tag1, parent_tag2][0][tag1, tag2].name)
-                tag_value = str(metadata[parent_tag1, parent_tag2][0][tag1, tag2].value)
-            except KeyError:
-                print(f"Tag ({dicom_tag[0]}, {dicom_tag[1]}) not found! Check for parent tag.")
+            for tag in dicom_tag:
+                if tag != dicom_tag[-1]:
+                    intermediate = intermediate[int(f"0x{tag[0]}", 16), int(f"0x{tag[1]}", 16)][0]
+                else:
+                    try:
+                        tag_name = str(intermediate[int(f"0x{tag[0]}", 16), int(f"0x{tag[1]}", 16)].name)
+                        tag_value = str(intermediate[int(f"0x{tag[0]}", 16), int(f"0x{tag[1]}", 16)].value)
+                    except KeyError:
+                        print(f"Tag ({dicom_tag[0]}, {dicom_tag[1]}) not found! Check for parent tag.")
 
         else:
             print("Please introduce a DICOM tag in format ['0000', '0000'], or, if nested, [['0000', '0000'],"
-                  " ['0000', '0000']] (with the first position referring to the parent tag).")
+                  " ['0000', '0000'], ...] (hierarchically ordered from parent to child).")
 
         return tag_name, tag_value
     else:
