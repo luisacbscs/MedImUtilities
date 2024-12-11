@@ -125,12 +125,14 @@ def resample_volume(volume, new_spacing, interpolation_mode="bspline"):
 
 
 # Function to resample an itk Image given a reference itk Image
-def resample_to_reference(volume, reference, interpolation_mode="nearestneighbour"):
+def resample_to_reference(volume, reference, interpolation_mode="bspline"):
 
-    if interpolation_mode == "nearestneighbour":    # for images
+    if interpolation_mode == "nearestneighbour":  # for masks
         interpolator = itk.NearestNeighborInterpolateImageFunction
-    elif interpolation_mode == "linear":    # for masks
+    elif interpolation_mode == "linear":
         interpolator = itk.LinearInterpolateImageFunction
+    else:
+        interpolator = itk.BSplineInterpolateImageFunction
 
     if isinstance(volume, str):
         volume = itk.imread(volume)
