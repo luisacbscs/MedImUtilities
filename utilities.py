@@ -187,6 +187,7 @@ def series_reader_writer(series_path, pixel_type=itk.F, dimension=3, out_filenam
         writer.Update()
 
 
+# Function to get the coronal maximum intensity projections of a volume
 def get_maximum_intensity_projections(volume, num_projections=72, progressbar=True):
 
     if isinstance(volume, str):
