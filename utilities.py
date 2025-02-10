@@ -185,3 +185,40 @@ def series_reader_writer(series_path, pixel_type=itk.F, dimension=3, out_filenam
         writer.SetInput(reader.GetOutput())
 
         writer.Update()
+
+
+def get_maximum_intensity_projection(volume, num_projections=72, progressbar=True):
+
+    if isinstance(volume, str):
+        volume = itk.imread(volume)
+    elif isinstance(volume, np.ndarray):
+        volume = itk.image_from_array(volume)
+    elif not isinstance(volume, itk.Image):
+        print("Please enter path to volume, numpy array ot itk Image!")
+        return
+
+    meta = dict(volume)
+    arr = np.asarray(volume)
+
+    angles = np.linspace(0, 360, num=num_projections, endpoint=False)
+
+    mip_stack = np.zeros((arr.shape[0], len(angles), arr.shape[1]), dtype=arr.dtype)
+
+    if progressbar:
+        from tqdm import tqdm
+        import sys
+        pb = tqdm(total=len(angles), desc="Calculating projections...", file=sys.stdout)
+
+    from scipy.ndimage import rotate
+    for y, angle in enumerate(angles):
+        rotated_image = rotate(arr, angle, axes=(1, 2), reshape=False, order=1)  # Rotate in-plane
+        mip_proj = rotated_image.max(axis=1)  # Compute MIP along the Y-axis
+        mip_stack[:, y, :] = mip_proj
+        if progressbar:
+            pb.update(1)
+
+    mip_itk = itk.image_from_array(mip_stack)
+    for k, v in meta.items():
+        mip_itk[k] = v
+
+    return mip_itk
