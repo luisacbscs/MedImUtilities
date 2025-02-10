@@ -187,7 +187,7 @@ def series_reader_writer(series_path, pixel_type=itk.F, dimension=3, out_filenam
         writer.Update()
 
 
-def get_maximum_intensity_projection(volume, num_projections=72, progressbar=True):
+def get_maximum_intensity_projections(volume, num_projections=72, progressbar=True):
 
     if isinstance(volume, str):
         volume = itk.imread(volume)
