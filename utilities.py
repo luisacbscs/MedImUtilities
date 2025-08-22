@@ -48,10 +48,17 @@ def read_dicom_series(series_path, pixel_type=itk.F, dimension=3, print_metadata
 # tag is passed, all metadata dictionary is printed.
 def get_dicom_tag(series_path, dicom_tag: list = None):
 
+    if len(os.listdir(series_path)) == 0:
+        print("Empty directory!")
+        return None
+
     import pydicom
-    metadata = pydicom.filereader.dcmread(os.path.join(series_path, sorted(os.listdir(series_path))[1]))    # reading
-    # from the second file in the series (index 1), as the first file may be a storage file (DIRFILE) and, therefore,
-    # its metadata relative to DICOM series organization and storage, and not actual imaging-related tags
+    try:
+        metadata = pydicom.filereader.dcmread(os.path.join(series_path, sorted(os.listdir(series_path))[1]))
+        # reading from the second file in the series (index 1), as the first file may be a storage file (DIRFILE) and,
+        # therefore, its metadata relative to DICOM series organization and storage, and not actual imaging-related tags
+    except IndexError:
+        metadata = pydicom.filereader.dcmread(os.path.join(series_path, sorted(os.listdir(series_path))[0]))
 
     if dicom_tag is not None:
         tag_name = None
@@ -223,3 +230,47 @@ def get_maximum_intensity_projections(volume, num_projections=72, progressbar=Tr
         mip_itk[k] = v
 
     return mip_itk
+
+
+def coregister_images(moving_image, fixed_image, fixed_mask=None, debug=False, get_transform=False):
+    """
+    :param moving_image: Moving ITK image
+    :param fixed_image: Fixed ITK image
+    Both images must have the same pixel type!!!! Else exit code -1073741819 (0xC0000005) (Windows access violation
+     error) will be thrown
+    :param pixel_type: default id ITK Double
+    :param dimension: default is 3 dimensions (volume)
+    :return: img1 registered to img2
+    """
+
+    parameter_object = itk.ParameterObject.New()
+    default_rigid_parameter_map = parameter_object.GetDefaultParameterMap('rigid')
+
+    # Modify the parameter map for initialization
+    default_rigid_parameter_map["AutomaticTransformInitialization"] = ["true"]
+    default_rigid_parameter_map["AutomaticTransformInitializationMethod"] = ["MenterOfGravity"]
+
+    parameter_object.AddParameterMap(default_rigid_parameter_map)
+
+    # Load Elastix Image Filter Object
+    elastix_object = itk.ElastixRegistrationMethod.New(fixed_image, moving_image)
+    elastix_object.SetParameterObject(parameter_object)
+
+    if fixed_mask is not None:
+        elastix_object.SetFixedMask(fixed_mask)
+
+    # Set additional options
+    elastix_object.SetLogToConsole(debug)
+
+    # Update filter object (required)
+    elastix_object.UpdateLargestPossibleRegion()
+
+    # Results of Registration
+    registered_image = elastix_object.GetOutput()
+
+    if get_transform:
+        # Get transform parameter map
+        transform_parameter_map = elastix_object.GetTransformParameterObject()
+        return registered_image, transform_parameter_map
+
+    return registered_image
