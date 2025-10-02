@@ -274,3 +274,29 @@ def coregister_images(moving_image, fixed_image, fixed_mask=None, debug=False, g
         return registered_image, transform_parameter_map
 
     return registered_image
+
+
+def gaussian_filter_mm(image, fwhm_mm, output_array=False):
+    """
+    3D Gaussian filter implemented in millimeters
+    :param image: ITK image (must have isotropic spacing!)
+    :param fwhm_mm: full width at half maximum in millimiters of the desired filter
+    :return: filtered ITK image if output_array is false, otherwise filtered Numpy array
+    """
+    from scipy.ndimage.filters import gaussian_filter
+
+    spacing_z, spacing_y, spacing_x = image['spacing']
+    if spacing_z != spacing_y or spacing_x != spacing_y or spacing_z != spacing_x:
+        print("Image must be resampled to isotropic spacing!")
+        return
+    spacing = spacing_z
+    sigma = fwhm_mm / ((2 * np.sqrt(2 * np.log(2))) * spacing)
+
+    arr = np.asarray(image)
+    if output_array:
+        return gaussian_filter(arr, sigma=sigma)
+    else:
+        filtered = itk.image_from_array(arr)
+        for k, v in dict(image).items():
+            filtered[k] = v
+        return filtered
