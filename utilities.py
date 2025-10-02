@@ -281,6 +281,7 @@ def gaussian_filter_mm(image, fwhm_mm, output_array=False):
     3D Gaussian filter implemented in millimeters
     :param image: ITK image (must have isotropic spacing!)
     :param fwhm_mm: full width at half maximum in millimeters of the desired filter
+    :param output_array: True to return a Numpy array instead of an ITK image (default False)
     :return: filtered ITK image if output_array is false, otherwise filtered Numpy array
     """
     from scipy.ndimage import gaussian_filter
