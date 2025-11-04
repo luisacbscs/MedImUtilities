@@ -276,6 +276,103 @@ def coregister_images(moving_image, fixed_image, fixed_mask=None, debug=False, g
     return registered_image
 
 
+def coregister_and_average_dynamic_series(series_path, pixel_type=itk.D, dimension=3, output_file=None):
+    """
+    :param series_path: path to the series folder (which contains the serial .dcm files)
+    :param pixel_type: data type of the image (itk.D, itk.F, etc.)
+    :param dimension: 3 for three-dimensional image (volume)
+    :param output_file: output file path to write co-registered and averaged dynamic series image (optional)
+    :return: co-registered and averaged dynamic series image
+    """
+
+    number_of_slices_per_frame = get_dicom_tag(series_path, dicom_tag=['0054', '0081'])
+    if number_of_slices_per_frame is not None:
+        number_of_slices_per_frame = int(number_of_slices_per_frame[-1])
+
+    number_of_time_slices = get_dicom_tag(series_path, dicom_tag=['0054', '0101'])
+    if number_of_time_slices is not None:
+        number_of_time_slices = int(number_of_time_slices[-1])
+
+    if number_of_slices_per_frame is None and number_of_time_slices is None:
+        print("Dynamic acquisition parameters not found in DICOM metadata!")
+
+    names_generator = itk.GDCMSeriesFileNames.New()
+    names_generator.SetUseSeriesDetails(True)
+    names_generator.SetGlobalWarningDisplay(False)
+    names_generator.SetDirectory(series_path)
+
+    dicom_filenames = names_generator.GetInputFileNames()
+
+    number_of_frames = int(len(dicom_filenames) / number_of_slices_per_frame) \
+        if len(dicom_filenames) % number_of_slices_per_frame == 0 else None
+
+    if number_of_frames is None:
+        print(f"Total number of slices ({len(dicom_filenames)}) not in agreement with number of slices per frame "
+              f"({number_of_slices_per_frame})!")
+        return
+    else:
+        if number_of_frames != number_of_time_slices:
+            print(f"\n{series_path}:\nDICOM tag for number of frames ({number_of_time_slices}) not in accordance with "
+                  f"DICOM tag for number of slices per frame ({number_of_slices_per_frame}) and available .dcm slices "
+                  f"({len(dicom_filenames)})!\nWriting image according with available data ({number_of_frames} frames "
+                  f"of {number_of_slices_per_frame} slices, instead of {number_of_time_slices} frames of "
+                  f"{number_of_slices_per_frame} slices...)")
+
+    ImageType = itk.Image[pixel_type, dimension]
+
+    frames = []
+    start = 0
+    for n in range(number_of_frames):
+
+        current_frame_dicom_filenames = dicom_filenames[start:start + number_of_slices_per_frame]
+
+        reader = itk.ImageSeriesReader[ImageType].New()
+        reader.SetFileNames(current_frame_dicom_filenames)
+        reader.ForceOrthogonalDirectionOff()  # Helps with non-standard orientations
+
+        image_series = reader.GetOutput()
+        reader.Update()
+
+        frames.append(image_series)
+        start = start + number_of_slices_per_frame
+
+    fixed_image = frames[0]
+    coregistered_images = [fixed_image]
+
+    for i in range(1, number_of_frames):
+        moving_image = frames[i]
+
+        parameter_object = itk.ParameterObject.New()
+        default_rigid_parameter_map = parameter_object.GetDefaultParameterMap('rigid')
+        parameter_object.AddParameterMap(default_rigid_parameter_map)
+
+        # Load Elastix Image Filter Object
+        elastix_object = itk.ElastixRegistrationMethod.New(fixed_image, moving_image)
+        elastix_object.SetParameterObject(parameter_object)
+
+        # Set additional options
+        elastix_object.SetLogToConsole(False)
+
+        # Update filter object (required)
+        elastix_object.UpdateLargestPossibleRegion()
+
+        # Results of Registration
+        result_image = elastix_object.GetOutput()
+
+        coregistered_images.append(result_image)
+
+    np_images = [itk.array_from_image(img) for img in coregistered_images]
+    averaged_arr = np.mean(np_images, axis=0)
+
+    averaged_itk_image = itk.image_from_array(averaged_arr)
+    averaged_itk_image.CopyInformation(fixed_image)
+
+    if output_file is not None:
+        itk.imwrite(averaged_itk_image, output_file)
+
+    return averaged_itk_image
+
+
 def gaussian_filter_mm(image, fwhm_mm, output_array=False):
     """
     3D Gaussian filter implemented in millimeters
