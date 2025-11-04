@@ -377,21 +377,19 @@ def gaussian_filter_mm(image, fwhm_mm, output_array=False):
     """
     3D Gaussian filter implemented in millimeters
     :param image: ITK image
-    :param fwhm_mm: full width at half maximum in millimeters of the desired filter
+    :param fwhm_mm: full width at half maximum in millimeters of the desired filter (float/int or list)
     :param output_array: True to return a Numpy array instead of an ITK image (default False)
     :return: filtered ITK image if output_array is false, otherwise filtered Numpy array
     """
     from scipy.ndimage import gaussian_filter
 
-    spacing_z, spacing_y, spacing_x = image['spacing']
-    if spacing_z == spacing_y and spacing_x == spacing_y and spacing_z == spacing_x:    # isotropic spacing
-        spacing = spacing_z
-        sigma = fwhm_mm / ((2 * np.sqrt(2 * np.log(2))) * spacing)
-    else:   # anisotropic spacing
-        sigma = []
-        for sp in image['spacing']:
-            current_sigma = fwhm_mm / ((2 * np.sqrt(2 * np.log(2))) * sp)
-            sigma.append(current_sigma)
+    if isinstance(fwhm_mm, float) or isinstance(fwhm_mm, int):
+        fwhm_mm = [fwhm_mm, fwhm_mm, fwhm_mm]
+
+    sigma = []
+    for sp, fwhm in zip(image['spacing'], fwhm_mm):
+        current_sigma = fwhm / ((2 * np.sqrt(2 * np.log(2))) * sp)
+        sigma.append(current_sigma)
 
     arr = np.asarray(image)
     filt_arr = gaussian_filter(arr, sigma=sigma)
