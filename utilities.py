@@ -376,7 +376,7 @@ def coregister_and_average_dynamic_series(series_path, pixel_type=itk.D, dimensi
 def gaussian_filter_mm(image, fwhm_mm, output_array=False):
     """
     3D Gaussian filter implemented in millimeters
-    :param image: ITK image (must have isotropic spacing!)
+    :param image: ITK image
     :param fwhm_mm: full width at half maximum in millimeters of the desired filter
     :param output_array: True to return a Numpy array instead of an ITK image (default False)
     :return: filtered ITK image if output_array is false, otherwise filtered Numpy array
@@ -384,17 +384,21 @@ def gaussian_filter_mm(image, fwhm_mm, output_array=False):
     from scipy.ndimage import gaussian_filter
 
     spacing_z, spacing_y, spacing_x = image['spacing']
-    if spacing_z != spacing_y or spacing_x != spacing_y or spacing_z != spacing_x:
-        print("Image must be resampled to isotropic spacing!")
-        return
-    spacing = spacing_z
-    sigma = fwhm_mm / ((2 * np.sqrt(2 * np.log(2))) * spacing)
+    if spacing_z == spacing_y and spacing_x == spacing_y and spacing_z == spacing_x:    # isotropic spacing
+        spacing = spacing_z
+        sigma = fwhm_mm / ((2 * np.sqrt(2 * np.log(2))) * spacing)
+    else:   # anisotropic spacing
+        sigma = []
+        for sp in image['spacing']:
+            current_sigma = fwhm_mm / ((2 * np.sqrt(2 * np.log(2))) * sp)
+            sigma.append(current_sigma)
 
     arr = np.asarray(image)
+    filt_arr = gaussian_filter(arr, sigma=sigma)
     if output_array:
-        return gaussian_filter(arr, sigma=sigma)
+        return filt_arr
     else:
-        filtered = itk.image_from_array(arr)
+        filtered = itk.image_from_array(filt_arr)
         for k, v in dict(image).items():
             filtered[k] = v
         return filtered
